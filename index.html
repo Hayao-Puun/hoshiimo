@@ -22,6 +22,14 @@
     .hide-scrollbar::-webkit-scrollbar { display: none; }
     .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     body { -webkit-tap-highlight-color: transparent; }
+    
+    /* モバイルブラウザの高さ変動対策 */
+    html, body { margin: 0; padding: 0; height: 100%; }
+    #root { height: 100%; }
+    .app-container {
+      height: 100vh;
+      height: 100dvh; /* 対応ブラウザでは実際の表示領域に完全一致させる */
+    }
   </style>
 </head>
 <body class="bg-slate-100">
@@ -31,7 +39,7 @@
 
   <!-- アプリのプログラム本体 -->
   <script type="text/babel">
-    const { useState, useMemo, useEffect, useRef } = React;
+    const { useState, useMemo, useEffect } = React;
 
     // --- アイコンコンポーネント (Lucideの代わり) ---
     const SvgIcon = ({ children, size = 24, className = "" }) => (
@@ -58,8 +66,11 @@
     // --- ユーティリティ関数 ---
     const generateId = () => Math.random().toString(36).substring(2, 15);
 
+    // 期間ごとのカウント計算（指定期間の片方のみ入力にも対応）
     const getFilteredCount = (counts, period, customRange) => {
+      if (!counts || !Array.isArray(counts)) return 0;
       if (period === 'all') return counts.length;
+      
       const now = Date.now();
       
       if (period === 'week') {
@@ -69,10 +80,17 @@
         return counts.filter(t => now - t <= 30 * 24 * 60 * 60 * 1000).length;
       }
       if (period === 'custom') {
-        if (!customRange.start || !customRange.end) return counts.length;
-        const start = new Date(customRange.start).getTime();
-        const end = new Date(customRange.end).getTime() + 24 * 60 * 60 * 1000 - 1;
-        return counts.filter(t => t >= start && t <= end).length;
+        if (!customRange) return counts.length;
+        let countFiltered = counts;
+        if (customRange.start) {
+          const start = new Date(customRange.start + 'T00:00:00').getTime();
+          countFiltered = countFiltered.filter(t => t >= start);
+        }
+        if (customRange.end) {
+          const end = new Date(customRange.end + 'T23:59:59.999').getTime();
+          countFiltered = countFiltered.filter(t => t <= end);
+        }
+        return countFiltered.length;
       }
       return counts.length;
     };
@@ -221,14 +239,44 @@
       // アイテム操作
       const handleCountUp = (item) => {
         if(navigator.vibrate) navigator.vibrate(40);
-        setItems(prev => prev.map(i => i.id === item.id ? { ...i, counts: [...i.counts, Date.now()] } : i));
+        setItems(prev => prev.map(i => i.id === item.id ? { ...i, counts: [...(i.counts || []), Date.now()] } : i));
       };
 
+      // カウントダウン：現在表示されている期間のカウントの中から、一番新しいものを1つ消す
       const handleCountDown = (item) => {
         if(navigator.vibrate) navigator.vibrate(20);
-        const sortedCounts = [...item.counts].sort((a, b) => a - b);
-        sortedCounts.pop();
-        setItems(prev => prev.map(i => i.id === item.id ? { ...i, counts: sortedCounts } : i));
+        const counts = item.counts || [];
+        if (counts.length === 0) return;
+
+        let targetTimestamps = counts;
+        const now = Date.now();
+        
+        if (currentBoard.period === 'week') {
+          targetTimestamps = counts.filter(t => now - t <= 7 * 24 * 60 * 60 * 1000);
+        } else if (currentBoard.period === 'month') {
+          targetTimestamps = counts.filter(t => now - t <= 30 * 24 * 60 * 60 * 1000);
+        } else if (currentBoard.period === 'custom' && currentBoard.customRange) {
+          let filtered = counts;
+          if (currentBoard.customRange.start) {
+            const start = new Date(currentBoard.customRange.start + 'T00:00:00').getTime();
+            filtered = filtered.filter(t => t >= start);
+          }
+          if (currentBoard.customRange.end) {
+            const end = new Date(currentBoard.customRange.end + 'T23:59:59.999').getTime();
+            filtered = filtered.filter(t => t <= end);
+          }
+          targetTimestamps = filtered;
+        }
+        
+        if (targetTimestamps.length > 0) {
+          const maxTimestamp = Math.max(...targetTimestamps);
+          const indexToRemove = counts.indexOf(maxTimestamp);
+          if (indexToRemove !== -1) {
+            const newCounts = [...counts];
+            newCounts.splice(indexToRemove, 1);
+            setItems(prev => prev.map(i => i.id === item.id ? { ...i, counts: newCounts } : i));
+          }
+        }
       };
 
       const handleSaveItem = (e) => {
@@ -246,8 +294,10 @@
       };
 
       const handleDeleteItem = (itemId) => {
-        setItems(prev => prev.filter(i => i.id !== itemId));
-        setIsAddModalOpen(false);
+        if (window.confirm("このアイテムを削除してもよろしいですか？")) {
+          setItems(prev => prev.filter(i => i.id !== itemId));
+          setIsAddModalOpen(false);
+        }
       };
 
       const handlePurchaseItem = (itemId) => {
@@ -270,9 +320,11 @@
 
       const handleDeleteBoard = (boardId) => {
         if (boards.length <= 1) return;
-        setBoards(prev => prev.filter(b => b.id !== boardId));
-        setItems(prev => prev.filter(i => i.boardId !== boardId));
-        if (currentBoardId === boardId) setCurrentBoardId(boards.filter(b => b.id !== boardId)[0].id);
+        if (window.confirm("このボードと、ボード内のアイテムをすべて削除してもよろしいですか？")) {
+          setBoards(prev => prev.filter(b => b.id !== boardId));
+          setItems(prev => prev.filter(i => i.boardId !== boardId));
+          if (currentBoardId === boardId) setCurrentBoardId(boards.filter(b => b.id !== boardId)[0].id);
+        }
       };
 
       // データ引き継ぎ
@@ -315,33 +367,12 @@
         } catch(e) { setImportError('読み込みに失敗しました。'); }
       };
 
-      // スワイプ操作
-      const touchRef = useRef({ x: 0, y: 0 });
-      const handleTouchStart = (e) => {
-        touchRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-      };
-      const handleTouchEnd = (e) => {
-        if (!touchRef.current.x) return;
-        const dX = e.changedTouches[0].clientX - touchRef.current.x;
-        const dY = e.changedTouches[0].clientY - touchRef.current.y;
-        
-        if (Math.abs(dX) > Math.abs(dY) && Math.abs(dX) > 60) {
-          const currentIndex = periods.indexOf(currentBoard.period);
-          if (dX < 0 && currentIndex < periods.length - 1) { // 左へ
-            updateBoardSetting('period', periods[currentIndex + 1]);
-          } else if (dX > 0 && currentIndex > 0) { // 右へ
-            updateBoardSetting('period', periods[currentIndex - 1]);
-          }
-        }
-        touchRef.current = { x: 0, y: 0 };
-      };
-
       return (
-        <div className="min-h-screen flex justify-center font-sans text-slate-800">
-          <div className="w-full max-w-md bg-slate-50 relative flex flex-col min-h-screen overflow-hidden shadow-2xl">
+        <div className="flex justify-center font-sans text-slate-800 bg-slate-100 app-container">
+          <div className="w-full max-w-md bg-slate-50 relative flex flex-col h-full overflow-hidden shadow-2xl">
             
             {/* ヘッダー */}
-            <header className="px-5 py-3 flex items-center justify-between bg-white/95 backdrop-blur-md sticky top-0 z-20 border-b border-slate-200 shadow-sm">
+            <header className="px-5 py-3 flex items-center justify-between bg-white/95 backdrop-blur-md sticky top-0 z-20 border-b border-slate-200 shadow-sm shrink-0">
               <div className="flex flex-col flex-1 min-w-0 pr-2">
                 <div className="flex items-center text-amber-500 font-black text-[10px] tracking-widest mb-0.5">
                   <ShoppingBag size={12} className="mr-1" /> HOSHIIMO
@@ -368,7 +399,7 @@
             </header>
 
             {/* メインエリア */}
-            <main className="flex-1 overflow-y-auto pb-24" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+            <main className="flex-1 overflow-y-auto pb-28">
               {/* フィルター */}
               <div className="sticky top-0 z-10 bg-gradient-to-b from-slate-50 to-slate-50/0 pt-3 pb-2 px-4">
                 <div className="flex bg-white p-1 rounded-xl shadow-sm border border-slate-100 max-w-full">
@@ -380,9 +411,9 @@
                 </div>
                 {currentBoard.period === 'custom' && (
                   <div className="mt-2 flex items-center justify-center gap-2 bg-white p-2 rounded-xl border border-slate-100 shadow-sm transition-opacity">
-                    <input type="date" value={currentBoard.customRange.start} onChange={e => updateBoardSetting('customRange', {...currentBoard.customRange, start: e.target.value})} className="text-xs bg-slate-50 border border-slate-200 rounded-md p-1.5 outline-none focus:border-amber-500 w-full"/>
+                    <input type="date" value={(currentBoard.customRange || {}).start || ''} onChange={e => updateBoardSetting('customRange', {...(currentBoard.customRange || { start: '', end: '' }), start: e.target.value})} className="text-xs bg-slate-50 border border-slate-200 rounded-md p-1.5 outline-none focus:border-amber-500 w-full"/>
                     <span className="text-slate-400 text-xs font-bold">〜</span>
-                    <input type="date" value={currentBoard.customRange.end} onChange={e => updateBoardSetting('customRange', {...currentBoard.customRange, end: e.target.value})} className="text-xs bg-slate-50 border border-slate-200 rounded-md p-1.5 outline-none focus:border-amber-500 w-full"/>
+                    <input type="date" value={(currentBoard.customRange || {}).end || ''} onChange={e => updateBoardSetting('customRange', {...(currentBoard.customRange || { start: '', end: '' }), end: e.target.value})} className="text-xs bg-slate-50 border border-slate-200 rounded-md p-1.5 outline-none focus:border-amber-500 w-full"/>
                   </div>
                 )}
               </div>
@@ -395,7 +426,7 @@
                       <ShoppingBag size={40} />
                     </div>
                     <h2 className="text-lg font-bold text-slate-700 mb-1">アイテムがありません</h2>
-                    <p className="text-slate-500 text-xs leading-relaxed">右下のボタンから追加するか、<br/>左右にスワイプして期間を変更してください。</p>
+                    <p className="text-slate-500 text-xs leading-relaxed">右下のボタンから追加するか、<br/>上のボタンで期間を変更してください。</p>
                   </div>
                 ) : (
                   rankedItems.map((item, index) => (
@@ -451,7 +482,7 @@
                 <div className="pt-2 flex gap-3">
                   <button type="submit" disabled={!formData.name.trim()} className="flex-1 py-3.5 bg-slate-800 text-white text-sm font-bold rounded-xl shadow-md active:scale-95 disabled:opacity-50">保存する</button>
                   {formData.id && (
-                    <button type="button" onClick={() => handleDeleteItem(formData.id)} className="px-5 bg-red-50 text-red-600 font-bold rounded-xl"><Trash2 size={18}/></button>
+                    <button type="button" onClick={() => handleDeleteItem(formData.id)} className="px-5 bg-red-50 text-red-600 hover:bg-red-100 font-bold rounded-xl transition-colors"><Trash2 size={18}/></button>
                   )}
                 </div>
               </form>
@@ -467,8 +498,8 @@
                         <span className={`text-sm font-bold truncate ${currentBoardId === board.id ? 'text-amber-800' : 'text-slate-700'}`}>{board.name}</span>
                       </button>
                       <div className="flex items-center space-x-1 shrink-0 ml-2">
-                        <button onClick={() => setBoardFormData({ id: board.id, name: board.name })} className="p-1.5 text-slate-400 bg-white rounded-lg border border-slate-100"><Edit2 size={14} /></button>
-                        <button onClick={() => handleDeleteBoard(board.id)} disabled={boards.length <= 1} className="p-1.5 text-slate-400 bg-white rounded-lg border border-slate-100 disabled:opacity-30"><Trash2 size={14} /></button>
+                        <button onClick={() => setBoardFormData({ id: board.id, name: board.name })} className="p-1.5 text-slate-400 hover:text-slate-600 bg-white rounded-lg border border-slate-100"><Edit2 size={14} /></button>
+                        <button onClick={() => handleDeleteBoard(board.id)} disabled={boards.length <= 1} className="p-1.5 text-slate-400 hover:text-red-600 bg-white rounded-lg border border-slate-100 disabled:opacity-30 disabled:hover:text-slate-400"><Trash2 size={14} /></button>
                       </div>
                     </div>
                   ))}
@@ -518,7 +549,7 @@
                   <h4 className="text-sm font-bold text-slate-700 mb-2 flex items-center"><Upload size={16} className="mr-2 text-amber-500" />データを復元</h4>
                   <textarea value={importData} onChange={(e) => setImportData(e.target.value)} placeholder="コピーしたデータを貼り付け" className="w-full h-20 p-3 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-amber-500 resize-none mb-2 font-mono"></textarea>
                   {importError && <p className="text-xs text-red-500 font-bold mb-3">{importError}</p>}
-                  <button onClick={handleImport} disabled={!importData.trim()} className="w-full py-3 bg-slate-800 text-white font-bold rounded-xl disabled:opacity-50 text-sm">復元する</button>
+                  <button onClick={handleImport} disabled={!importData.trim()} className="w-full py-3 bg-slate-800 text-white font-bold rounded-xl disabled:opacity-50 text-sm active:scale-95 transition-transform">復元する</button>
                 </div>
               </div>
             </Modal>
