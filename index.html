@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>ホシイモ - 欲しいものカウント</title>
+  
+  <!-- スタイルの読み込み (Tailwind CSS) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- ReactとBabelの読み込み -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    /* アニメーションとスクロールバー非表示の設定 */
+    @keyframes floatUp {
+      0% { transform: translateY(0) scale(1); opacity: 1; }
+      100% { transform: translateY(-30px) scale(1.5); opacity: 0; }
+    }
+    .hide-scrollbar::-webkit-scrollbar { display: none; }
+    .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    body { -webkit-tap-highlight-color: transparent; }
+  </style>
+</head>
+<body class="bg-slate-100">
+  
+  <!-- アプリの表示領域 -->
+  <div id="root"></div>
+
+  <!-- アプリのプログラム本体 -->
+  <script type="text/babel">
+    const { useState, useMemo, useEffect, useRef } = React;
+
+    // --- アイコンコンポーネント (Lucideの代わり) ---
+    const SvgIcon = ({ children, size = 24, className = "" }) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>{children}</svg>
+    );
+    const Plus = (p) => <SvgIcon {...p}><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></SvgIcon>;
+    const Edit2 = (p) => <SvgIcon {...p}><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></SvgIcon>;
+    const Trash2 = (p) => <SvgIcon {...p}><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></SvgIcon>;
+    const ExternalLink = (p) => <SvgIcon {...p}><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></SvgIcon>;
+    const ChevronDown = (p) => <SvgIcon {...p}><polyline points="6 9 12 15 18 9"></polyline></SvgIcon>;
+    const X = (p) => <SvgIcon {...p}><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></SvgIcon>;
+    const LinkIcon = (p) => <SvgIcon {...p}><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></SvgIcon>;
+    const ShoppingBag = (p) => <SvgIcon {...p}><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path><line x1="3" y1="6" x2="21" y2="6"></line><path d="M16 10a4 4 0 0 1-8 0"></path></SvgIcon>;
+    const ListIcon = (p) => <SvgIcon {...p}><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></SvgIcon>;
+    const FolderPlus = (p) => <SvgIcon {...p}><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><line x1="12" y1="11" x2="12" y2="17"></line><line x1="9" y1="14" x2="15" y2="14"></line></SvgIcon>;
+    const CheckCircle2 = (p) => <SvgIcon {...p}><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></SvgIcon>;
+    const ShoppingCart = (p) => <SvgIcon {...p}><circle cx="9" cy="21" r="1"></circle><circle cx="20" cy="21" r="1"></circle><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path></SvgIcon>;
+    const Settings = (p) => <SvgIcon {...p}><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></SvgIcon>;
+    const Download = (p) => <SvgIcon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></SvgIcon>;
+    const Upload = (p) => <SvgIcon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></SvgIcon>;
+    const Copy = (p) => <SvgIcon {...p}><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></SvgIcon>;
+    const Check = (p) => <SvgIcon {...p}><polyline points="20 6 9 17 4 12"></polyline></SvgIcon>;
+
+    // --- ユーティリティ関数 ---
+    const generateId = () => Math.random().toString(36).substring(2, 15);
+
+    const getFilteredCount = (counts, period, customRange) => {
+      if (period === 'all') return counts.length;
+      const now = Date.now();
+      
+      if (period === 'week') {
+        return counts.filter(t => now - t <= 7 * 24 * 60 * 60 * 1000).length;
+      }
+      if (period === 'month') {
+        return counts.filter(t => now - t <= 30 * 24 * 60 * 60 * 1000).length;
+      }
+      if (period === 'custom') {
+        if (!customRange.start || !customRange.end) return counts.length;
+        const start = new Date(customRange.start).getTime();
+        const end = new Date(customRange.end).getTime() + 24 * 60 * 60 * 1000 - 1;
+        return counts.filter(t => t >= start && t <= end).length;
+      }
+      return counts.length;
+    };
+
+    // --- 共通コンポーネント ---
+    const Modal = ({ isOpen, onClose, title, children }) => {
+      if (!isOpen) return null;
+      return (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={onClose}>
+          <div 
+            className="w-full max-w-md bg-white sm:rounded-3xl rounded-t-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]" 
+            style={{ animation: 'slideUp 0.3s ease-out' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 flex justify-between items-center bg-white sticky top-0 z-10 border-b border-slate-100 shrink-0">
+              <h3 className="text-lg font-bold text-slate-800">{title}</h3>
+              <button onClick={onClose} className="p-2 -mr-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-full transition-colors">
+                <X size={18}/>
+              </button>
+            </div>
+            <div className="p-5 overflow-y-auto">
+              {children}
+            </div>
+          </div>
+          <style>{`@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
+        </div>
+      );
+    };
+
+    const CountControls = ({ item, onUp, onDown }) => {
+      const [pops, setPops] = useState([]);
+      
+      const handleUp = () => {
+        const id = Date.now();
+        setPops(prev => [...prev, { id, type: 'up' }]);
+        setTimeout(() => setPops(prev => prev.filter(p => p.id !== id)), 800);
+        onUp(item);
+      };
+      
+      const handleDown = () => {
+        if(item.currentCount <= 0) return;
+        const id = Date.now();
+        setPops(prev => [...prev, { id, type: 'down' }]);
+        setTimeout(() => setPops(prev => prev.filter(p => p.id !== id)), 800);
+        onDown(item);
+      };
+
+      return (
+        <div className="flex items-center bg-slate-100/80 rounded-full p-1 relative select-none">
+          <button 
+            onClick={handleDown} 
+            disabled={item.currentCount <= 0}
+            className="w-7 h-7 rounded-full text-slate-500 font-bold active:bg-slate-200 transition-all disabled:opacity-50 flex items-center justify-center"
+          >
+            -
+          </button>
+          <div className="w-7 text-center font-black text-lg text-slate-700 tracking-tighter">
+            {item.currentCount}
+          </div>
+          <button 
+            onClick={handleUp} 
+            className="w-8 h-8 rounded-full bg-amber-500 text-white font-bold active:scale-95 shadow-sm transition-all flex items-center justify-center text-lg"
+          >
+            +
+          </button>
+          {pops.map(p => (
+            <span 
+              key={p.id} 
+              className={`absolute pointer-events-none text-xs font-black z-20 ${p.type === 'up' ? 'text-amber-500 right-1' : 'text-slate-500 left-1'}`}
+              style={{ animation: 'floatUp 0.8s ease-out forwards' }}
+            >
+              {p.type === 'up' ? '+1' : '-1'}
+            </span>
+          ))}
+        </div>
+      );
+    };
+
+    // --- メインアプリ ---
+    function App() {
+      // データの読み込み
+      const [boards, setBoards] = useState(() => {
+        const saved = localStorage.getItem('hoshiimo_boards');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          return parsed.map(b => ({
+            ...b,
+            period: b.period || 'all',
+            customRange: b.customRange || { start: '', end: '' }
+          }));
+        }
+        return [{ id: 'default', name: 'マイボード', createdAt: Date.now(), period: 'all', customRange: { start: '', end: '' } }];
+      });
+      
+      const [items, setItems] = useState(() => {
+        const saved = localStorage.getItem('hoshiimo_items');
+        return saved ? JSON.parse(saved) : [];
+      });
+      
+      const [currentBoardId, setCurrentBoardId] = useState(boards[0]?.id || 'default');
+      
+      // データの保存
+      useEffect(() => { localStorage.setItem('hoshiimo_boards', JSON.stringify(boards)); }, [boards]);
+      useEffect(() => { localStorage.setItem('hoshiimo_items', JSON.stringify(items)); }, [items]);
+
+      const currentBoard = boards.find(b => b.id === currentBoardId) || boards[0];
+      const allCurrentBoardItems = items.filter(item => item.boardId === currentBoardId);
+      
+      const periods = ['week', 'month', 'all', 'custom'];
+      const periodLabels = { week: '今週', month: '今月', all: '全期間', custom: '指定' };
+
+      // モーダルとフォームの状態
+      const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+      const [isBoardModalOpen, setIsBoardModalOpen] = useState(false);
+      const [isPurchasedModalOpen, setIsPurchasedModalOpen] = useState(false);
+      const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+      const [formData, setFormData] = useState({ id: null, name: '', url: '' });
+      const [boardFormData, setBoardFormData] = useState({ id: null, name: '' });
+      const [importData, setImportData] = useState('');
+      const [copyMessage, setCopyMessage] = useState('');
+      const [importError, setImportError] = useState('');
+
+      // リストデータの作成
+      const rankedItems = useMemo(() => {
+        return allCurrentBoardItems
+          .filter(item => !item.isPurchased)
+          .map(item => ({
+            ...item,
+            currentCount: getFilteredCount(item.counts, currentBoard.period, currentBoard.customRange)
+          }))
+          .filter(item => item.currentCount > 0 || currentBoard.period === 'all' || currentBoard.period === 'custom')
+          .sort((a, b) => b.currentCount - a.currentCount || b.createdAt - a.createdAt);
+      }, [allCurrentBoardItems, currentBoard]);
+
+      const purchasedItems = useMemo(() => {
+        return allCurrentBoardItems
+          .filter(item => item.isPurchased)
+          .sort((a, b) => (b.purchasedAt || 0) - (a.purchasedAt || 0));
+      }, [allCurrentBoardItems]);
+
+      // ボード設定の更新
+      const updateBoardSetting = (key, value) => {
+        setBoards(prev => prev.map(b => b.id === currentBoardId ? { ...b, [key]: value } : b));
+      };
+
+      // アイテム操作
+      const handleCountUp = (item) => {
+        if(navigator.vibrate) navigator.vibrate(40);
+        setItems(prev => prev.map(i => i.id === item.id ? { ...i, counts: [...i.counts, Date.now()] } : i));
+      };
+
+      const handleCountDown = (item) => {
+        if(navigator.vibrate) navigator.vibrate(20);
+        const sortedCounts = [...item.counts].sort((a, b) => a - b);
+        sortedCounts.pop();
+        setItems(prev => prev.map(i => i.id === item.id ? { ...i, counts: sortedCounts } : i));
+      };
+
+      const handleSaveItem = (e) => {
+        e.preventDefault();
+        if (!formData.name.trim()) return;
+        if (formData.id) {
+          setItems(prev => prev.map(i => i.id === formData.id ? { ...i, name: formData.name.trim(), url: formData.url.trim() } : i));
+        } else {
+          setItems(prev => [...prev, {
+            id: generateId(), boardId: currentBoardId, name: formData.name.trim(), url: formData.url.trim(),
+            counts: [Date.now()], createdAt: Date.now(), isPurchased: false, purchasedAt: null
+          }]);
+        }
+        setIsAddModalOpen(false);
+      };
+
+      const handleDeleteItem = (itemId) => {
+        setItems(prev => prev.filter(i => i.id !== itemId));
+        setIsAddModalOpen(false);
+      };
+
+      const handlePurchaseItem = (itemId) => {
+        setItems(prev => prev.map(i => i.id === itemId ? { ...i, isPurchased: true, purchasedAt: Date.now() } : i));
+      };
+
+      // ボード操作
+      const handleSaveBoard = (e) => {
+        e.preventDefault();
+        if (!boardFormData.name.trim()) return;
+        if (boardFormData.id) {
+          setBoards(prev => prev.map(b => b.id === boardFormData.id ? { ...b, name: boardFormData.name.trim() } : b));
+        } else {
+          const newBoard = { id: generateId(), name: boardFormData.name.trim(), createdAt: Date.now(), period: 'all', customRange: { start: '', end: '' } };
+          setBoards(prev => [...prev, newBoard]);
+          setCurrentBoardId(newBoard.id);
+        }
+        setBoardFormData({ id: null, name: '' });
+      };
+
+      const handleDeleteBoard = (boardId) => {
+        if (boards.length <= 1) return;
+        setBoards(prev => prev.filter(b => b.id !== boardId));
+        setItems(prev => prev.filter(i => i.boardId !== boardId));
+        if (currentBoardId === boardId) setCurrentBoardId(boards.filter(b => b.id !== boardId)[0].id);
+      };
+
+      // データ引き継ぎ
+      const handleExport = async () => {
+        const data = JSON.stringify({ boards, items });
+        try {
+          if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(data);
+            setCopyMessage('コピー完了！');
+          } else { throw new Error('Clipboard API not available'); }
+        } catch(e) {
+          const textArea = document.createElement("textarea");
+          textArea.value = data;
+          document.body.appendChild(textArea);
+          textArea.select();
+          try { document.execCommand('copy'); setCopyMessage('コピー完了！'); } 
+          catch (err) { setCopyMessage('コピーに失敗しました'); }
+          document.body.removeChild(textArea);
+        }
+        setTimeout(() => setCopyMessage(''), 3000);
+      };
+
+      const handleImport = () => {
+        setImportError('');
+        try {
+          if(!importData.trim()) return;
+          const parsed = JSON.parse(importData);
+          if (parsed.boards && parsed.items) {
+            const migratedBoards = parsed.boards.map(b => ({
+              ...b, period: b.period || 'all', customRange: b.customRange || { start: '', end: '' }
+            }));
+            setBoards(migratedBoards);
+            setItems(parsed.items);
+            setCurrentBoardId(migratedBoards[0]?.id || 'default');
+            setImportData('');
+            setIsSettingsModalOpen(false);
+          } else {
+            setImportError('データ形式が正しくありません。');
+          }
+        } catch(e) { setImportError('読み込みに失敗しました。'); }
+      };
+
+      // スワイプ操作
+      const touchRef = useRef({ x: 0, y: 0 });
+      const handleTouchStart = (e) => {
+        touchRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      };
+      const handleTouchEnd = (e) => {
+        if (!touchRef.current.x) return;
+        const dX = e.changedTouches[0].clientX - touchRef.current.x;
+        const dY = e.changedTouches[0].clientY - touchRef.current.y;
+        
+        if (Math.abs(dX) > Math.abs(dY) && Math.abs(dX) > 60) {
+          const currentIndex = periods.indexOf(currentBoard.period);
+          if (dX < 0 && currentIndex < periods.length - 1) { // 左へ
+            updateBoardSetting('period', periods[currentIndex + 1]);
+          } else if (dX > 0 && currentIndex > 0) { // 右へ
+            updateBoardSetting('period', periods[currentIndex - 1]);
+          }
+        }
+        touchRef.current = { x: 0, y: 0 };
+      };
+
+      return (
+        <div className="min-h-screen flex justify-center font-sans text-slate-800">
+          <div className="w-full max-w-md bg-slate-50 relative flex flex-col min-h-screen overflow-hidden shadow-2xl">
+            
+            {/* ヘッダー */}
+            <header className="px-5 py-3 flex items-center justify-between bg-white/95 backdrop-blur-md sticky top-0 z-20 border-b border-slate-200 shadow-sm">
+              <div className="flex flex-col flex-1 min-w-0 pr-2">
+                <div className="flex items-center text-amber-500 font-black text-[10px] tracking-widest mb-0.5">
+                  <ShoppingBag size={12} className="mr-1" /> HOSHIIMO
+                </div>
+                <button onClick={() => setIsBoardModalOpen(true)} className="flex items-center group -ml-1 p-1 rounded-xl hover:bg-slate-50 transition-colors w-full text-left">
+                  <h1 className="text-xl font-extrabold text-slate-800 tracking-tight truncate">{currentBoard?.name}</h1>
+                  <ChevronDown size={18} className="ml-1 shrink-0 text-slate-400 group-hover:text-amber-500 transition-colors" />
+                </button>
+              </div>
+              
+              <div className="flex items-center space-x-2 shrink-0">
+                <button onClick={() => setIsPurchasedModalOpen(true)} className="w-9 h-9 bg-amber-50 rounded-full flex items-center justify-center border border-amber-100 relative hover:bg-amber-100 transition-colors">
+                  <ShoppingCart size={16} className="text-amber-600" />
+                  {purchasedItems.length > 0 && (
+                    <div className="absolute -top-1 -right-1 bg-green-500 text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center border-2 border-white shadow-sm">
+                      {purchasedItems.length}
+                    </div>
+                  )}
+                </button>
+                <button onClick={() => setIsSettingsModalOpen(true)} className="w-9 h-9 bg-slate-50 rounded-full flex items-center justify-center border border-slate-200 relative hover:bg-slate-100 transition-colors">
+                  <Settings size={16} className="text-slate-600" />
+                </button>
+              </div>
+            </header>
+
+            {/* メインエリア */}
+            <main className="flex-1 overflow-y-auto pb-24" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+              {/* フィルター */}
+              <div className="sticky top-0 z-10 bg-gradient-to-b from-slate-50 to-slate-50/0 pt-3 pb-2 px-4">
+                <div className="flex bg-white p-1 rounded-xl shadow-sm border border-slate-100 max-w-full">
+                  {periods.map(p => (
+                    <button key={p} onClick={() => updateBoardSetting('period', p)} className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all duration-200 ${currentBoard.period === p ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'}`}>
+                      {periodLabels[p]}
+                    </button>
+                  ))}
+                </div>
+                {currentBoard.period === 'custom' && (
+                  <div className="mt-2 flex items-center justify-center gap-2 bg-white p-2 rounded-xl border border-slate-100 shadow-sm transition-opacity">
+                    <input type="date" value={currentBoard.customRange.start} onChange={e => updateBoardSetting('customRange', {...currentBoard.customRange, start: e.target.value})} className="text-xs bg-slate-50 border border-slate-200 rounded-md p-1.5 outline-none focus:border-amber-500 w-full"/>
+                    <span className="text-slate-400 text-xs font-bold">〜</span>
+                    <input type="date" value={currentBoard.customRange.end} onChange={e => updateBoardSetting('customRange', {...currentBoard.customRange, end: e.target.value})} className="text-xs bg-slate-50 border border-slate-200 rounded-md p-1.5 outline-none focus:border-amber-500 w-full"/>
+                  </div>
+                )}
+              </div>
+
+              {/* リスト */}
+              <div className="px-4 space-y-3 mt-2 min-h-[50vh]">
+                {rankedItems.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 px-6 text-center opacity-70">
+                    <div className="w-20 h-20 bg-amber-100 rounded-full flex items-center justify-center mb-4 text-amber-500">
+                      <ShoppingBag size={40} />
+                    </div>
+                    <h2 className="text-lg font-bold text-slate-700 mb-1">アイテムがありません</h2>
+                    <p className="text-slate-500 text-xs leading-relaxed">右下のボタンから追加するか、<br/>左右にスワイプして期間を変更してください。</p>
+                  </div>
+                ) : (
+                  rankedItems.map((item, index) => (
+                    <div key={item.id} className="bg-white rounded-2xl p-3 shadow-sm border border-slate-100 flex items-center gap-3 transition-all">
+                      <div className="shrink-0">
+                        <div className={`w-8 h-8 flex items-center justify-center rounded-full font-bold text-sm ${item.currentCount===0?'bg-slate-50 text-slate-400 border border-slate-200':index===0?'bg-gradient-to-br from-yellow-300 to-yellow-500 text-yellow-900 shadow-sm':index===1?'bg-gradient-to-br from-slate-200 to-slate-300 text-slate-700 shadow-sm':index===2?'bg-gradient-to-br from-orange-200 to-orange-300 text-orange-900 shadow-sm':'bg-slate-50 text-slate-500 border border-slate-200'}`}>
+                          {item.currentCount === 0 ? '-' : index + 1}
+                        </div>
+                      </div>
+                      <div className="flex-1 min-w-0 py-1">
+                        <h3 className="font-bold text-slate-800 text-sm leading-tight truncate">{item.name}</h3>
+                        <div className="flex items-center gap-3 mt-1.5">
+                          {item.url && (
+                            <a href={item.url} target="_blank" rel="noopener noreferrer" className="flex items-center text-[11px] font-bold text-amber-600 hover:text-amber-800">
+                              <LinkIcon size={10} className="mr-0.5" /> URL
+                            </a>
+                          )}
+                          <button onClick={() => { setFormData(item); setIsAddModalOpen(true); }} className="flex items-center text-[11px] font-bold text-slate-400 hover:text-slate-600">
+                            <Edit2 size={10} className="mr-0.5" /> 編集
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <CountControls item={item} onUp={handleCountUp} onDown={handleCountDown} />
+                        <button onClick={() => handlePurchaseItem(item.id)} className="w-9 h-9 flex items-center justify-center rounded-full bg-green-50 text-green-600 hover:bg-green-100 active:scale-95 transition-all border border-green-100" title="購入済みにする">
+                          <Check size={18} />
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </main>
+
+            {/* 追加ボタン */}
+            <div className="absolute bottom-6 right-5 z-20">
+              <button onClick={() => { setFormData({ id: null, name: '', url: '' }); setIsAddModalOpen(true); }} className="flex items-center justify-center w-14 h-14 bg-slate-800 text-white rounded-full shadow-lg hover:shadow-xl hover:-translate-y-1 active:scale-90 transition-all">
+                <Plus size={28} />
+              </button>
+            </div>
+
+            {/* モーダル群 */}
+            <Modal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} title={formData.id ? "アイテムの編集" : "新しいアイテム"}>
+              <form onSubmit={handleSaveItem} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">アイテム名 <span className="text-red-500">*</span></label>
+                  <input type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} placeholder="例：新しいスニーカー" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-amber-500 text-sm font-medium" autoFocus required />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center"><LinkIcon size={12} className="mr-1 text-slate-400" /> URL <span className="text-slate-400 font-normal ml-1">(任意)</span></label>
+                  <input type="url" value={formData.url} onChange={e => setFormData({...formData, url: e.target.value})} placeholder="https://..." className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-amber-500 text-sm font-medium" />
+                </div>
+                <div className="pt-2 flex gap-3">
+                  <button type="submit" disabled={!formData.name.trim()} className="flex-1 py-3.5 bg-slate-800 text-white text-sm font-bold rounded-xl shadow-md active:scale-95 disabled:opacity-50">保存する</button>
+                  {formData.id && (
+                    <button type="button" onClick={() => handleDeleteItem(formData.id)} className="px-5 bg-red-50 text-red-600 font-bold rounded-xl"><Trash2 size={18}/></button>
+                  )}
+                </div>
+              </form>
+            </Modal>
+
+            <Modal isOpen={isBoardModalOpen} onClose={() => setIsBoardModalOpen(false)} title="ボードの管理">
+              <div className="space-y-5">
+                <div className="space-y-2">
+                  {boards.map(board => (
+                    <div key={board.id} className={`flex items-center justify-between p-2.5 rounded-xl border-2 transition-all ${currentBoardId === board.id ? 'border-amber-500 bg-amber-50' : 'border-transparent bg-slate-50'}`}>
+                      <button onClick={() => { setCurrentBoardId(board.id); setIsBoardModalOpen(false); }} className="flex-1 flex items-center text-left min-w-0">
+                        <ListIcon size={16} className={`mr-2 shrink-0 ${currentBoardId === board.id ? 'text-amber-500' : 'text-slate-400'}`} />
+                        <span className={`text-sm font-bold truncate ${currentBoardId === board.id ? 'text-amber-800' : 'text-slate-700'}`}>{board.name}</span>
+                      </button>
+                      <div className="flex items-center space-x-1 shrink-0 ml-2">
+                        <button onClick={() => setBoardFormData({ id: board.id, name: board.name })} className="p-1.5 text-slate-400 bg-white rounded-lg border border-slate-100"><Edit2 size={14} /></button>
+                        <button onClick={() => handleDeleteBoard(board.id)} disabled={boards.length <= 1} className="p-1.5 text-slate-400 bg-white rounded-lg border border-slate-100 disabled:opacity-30"><Trash2 size={14} /></button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="h-px bg-slate-100"></div>
+                <form onSubmit={handleSaveBoard} className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                  <label className="block text-xs font-bold text-slate-700 mb-2 flex items-center"><FolderPlus size={14} className="mr-1.5 text-amber-500" />{boardFormData.id ? "ボード名を変更" : "新しいボード"}</label>
+                  <div className="flex space-x-2">
+                    <input type="text" value={boardFormData.name} onChange={e => setBoardFormData({...boardFormData, name: e.target.value})} placeholder="ボード名" className="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm font-medium outline-none focus:border-amber-500" />
+                    <button type="submit" disabled={!boardFormData.name.trim()} className="px-3 bg-amber-500 text-white font-bold rounded-lg text-xs active:scale-95 disabled:opacity-50">{boardFormData.id ? "更新" : "作成"}</button>
+                    {boardFormData.id && <button type="button" onClick={() => setBoardFormData({ id: null, name: '' })} className="px-2 bg-slate-200 text-slate-600 font-bold rounded-lg text-xs">取消</button>}
+                  </div>
+                </form>
+              </div>
+            </Modal>
+
+            <Modal isOpen={isPurchasedModalOpen} onClose={() => setIsPurchasedModalOpen(false)} title="購入済みアイテム">
+              <div className="space-y-3">
+                {purchasedItems.length === 0 ? (
+                  <div className="text-center py-8 text-slate-400 text-sm">購入済みのアイテムはありません。</div>
+                ) : (
+                  purchasedItems.map(item => (
+                    <div key={item.id} className="bg-slate-50 rounded-xl p-3 border border-slate-100 flex items-center justify-between">
+                      <div className="flex-1 min-w-0 pr-3">
+                        <div className="text-sm font-bold text-slate-700 truncate line-through opacity-70">{item.name}</div>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button onClick={() => setItems(prev=>prev.map(i=>i.id===item.id?{...i,isPurchased:false,purchasedAt:null}:i))} className="text-[10px] font-bold bg-white text-slate-600 border border-slate-200 px-2 py-1.5 rounded-md hover:bg-slate-100">戻す</button>
+                        <button onClick={() => handleDeleteItem(item.id)} className="p-1.5 bg-white text-red-400 border border-slate-200 rounded-md hover:bg-red-50"><Trash2 size={12} /></button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </Modal>
+
+            <Modal isOpen={isSettingsModalOpen} onClose={() => { setIsSettingsModalOpen(false); setCopyMessage(''); setImportError(''); setImportData(''); }} title="データ引き継ぎ">
+              <div className="space-y-6">
+                <div>
+                  <h4 className="text-sm font-bold text-slate-700 mb-2 flex items-center"><Download size={16} className="mr-2 text-amber-500" />データをコピー</h4>
+                  <button onClick={handleExport} className={`w-full py-3 font-bold rounded-xl border flex items-center justify-center text-sm ${copyMessage ? 'bg-green-50 text-green-600 border-green-200' : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                    <Copy size={16} className="mr-2" />{copyMessage || "データをコピーする"}
+                  </button>
+                </div>
+                <div className="h-px bg-slate-100"></div>
+                <div>
+                  <h4 className="text-sm font-bold text-slate-700 mb-2 flex items-center"><Upload size={16} className="mr-2 text-amber-500" />データを復元</h4>
+                  <textarea value={importData} onChange={(e) => setImportData(e.target.value)} placeholder="コピーしたデータを貼り付け" className="w-full h-20 p-3 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-amber-500 resize-none mb-2 font-mono"></textarea>
+                  {importError && <p className="text-xs text-red-500 font-bold mb-3">{importError}</p>}
+                  <button onClick={handleImport} disabled={!importData.trim()} className="w-full py-3 bg-slate-800 text-white font-bold rounded-xl disabled:opacity-50 text-sm">復元する</button>
+                </div>
+              </div>
+            </Modal>
+
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
